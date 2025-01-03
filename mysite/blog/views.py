@@ -1,4 +1,7 @@
-from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
+from django.contrib.postgres.search import (
+    SearchVector, SearchQuery,
+    SearchRank, TrigramSimilarity
+)
 from django.core.mail import send_mail
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.models import Count
@@ -10,6 +13,7 @@ from taggit.models import Tag
 from .forms import CommentForm, EmailPostForm, SearchForm
 from .models import Post
 
+POST_LIST_NUMBER = 10
 
 def post_list(request, tag_slug=None):
     post_list = Post.published.all()
@@ -18,7 +22,7 @@ def post_list(request, tag_slug=None):
         tag = get_object_or_404(Tag, slug=tag_slug)
         post_list = post_list.filter(tags__in=[tag])
     # Pagination with 3 posts per page
-    paginator = Paginator(post_list, 3)
+    paginator = Paginator(post_list, POST_LIST_NUMBER)
     page_number = request.GET.get('page', 1)
     try:
         posts = paginator.page(page_number)
@@ -140,9 +144,9 @@ def post_comment(request, post_id):
 class PostListView(ListView):
     queryset = Post.published.all()
     context_object_name = 'posts'
-    paginate_by = 3
+    paginate_by = POST_LIST_NUMBER
     template_name = 'blog/post/list.html'
- 
+
 
 def post_search(request):
     form = SearchForm()
@@ -153,19 +157,35 @@ def post_search(request):
         form = SearchForm(request.GET)
         if form.is_valid():
             query = form.cleaned_data['query']
+
+            # Векторный поиск и триграммное сходство
             search_vector = (
                 SearchVector('title', weight='A', config='russian') +
                 SearchVector('body', weight='B', config='russian')
             )
-            search_query = SearchQuery(query, config='russian')
-            results = (
+            search_query = SearchQuery(query, config='russian', search_type='websearch')
+            trigram_similarity = TrigramSimilarity('title', query)
+
+            # Комбинированный поиск
+            combined_results = (
                 Post.published.annotate(
-                    search=search_vector,
-                    rank=SearchRank(search_vector, search_query)
+                    rank=SearchRank(search_vector, search_query),
+                    similarity=trigram_similarity
                 )
-                .filter(rank__gte=0.3)
-                .order_by('-rank')
+                .filter(rank__gte=0.2, similarity__gt=0.05)
+                .order_by('-rank', '-similarity')
             )
+
+            # Пагинация — 10 постов на страницу
+            paginator = Paginator(combined_results, POST_LIST_NUMBER)
+            page_number = request.GET.get('page', 1)
+
+            try:
+                results = paginator.page(page_number)
+            except PageNotAnInteger:
+                results = paginator.page(1)
+            except EmptyPage:
+                results = paginator.page(paginator.num_pages)
 
     return render(
         request,
@@ -173,6 +193,6 @@ def post_search(request):
         {
             'form': form,
             'query': query,
-            'results': results
+            'results': results,
         },
     )
