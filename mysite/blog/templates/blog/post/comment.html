@@ -2,9 +2,26 @@
 
 {% block content %}
   {% if comment %}
-    <h2>You comment has been added.</h2>
+    <h2>Your comment has been added.</h2>
     <p><a href="{{ post.get_absolute_url }}">Back to the post</a></p>
-  {% else %}
-    {% include "blog/post/includes/comment_form.html" %}
   {% endif %}
+
+  <h2>Comments</h2>
+  {% if comments %}
+    {% for comment in comments %}
+      <div class="comment">
+        <p class="info">
+          Comment {{ forloop.counter0|add:comments.start_index }} by {{ comment.name }}
+          {{ comment.created }}
+        </p>
+        {{ comment.body|linebreaks }}
+      </div>
+    {% endfor %}
+    {% include "pagination.html" with page=comments %}
+  {% else %}
+    <p>There are no comments.</p>
+  {% endif %}
+
+  <h3>Add a comment</h3>
+  {% include "blog/post/includes/comment_form.html" %}
 {% endblock %}
